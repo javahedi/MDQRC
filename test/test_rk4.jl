@@ -5,7 +5,9 @@ using LinearAlgebra
 @testset "RK4 Evolution" begin
 
     N = 4
-    model = TFIMChain(N, 1.0, 0.5, 0.0)
+    Jzz = 1.0 .* ones(N-1)
+    hz0 = -0.5 .* ones(N)
+    model = TFIMChain(N, Jzz, 1.05, hz0, [1,2])
     ψ0 = product_state(N)
 
     hz(t) = 0.2

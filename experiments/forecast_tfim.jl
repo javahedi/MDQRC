@@ -1,7 +1,15 @@
+
+
 using MDQRC
 using Statistics
+using Random
 
-model = TFIMChain(6, 1.0, 0.7, 0.0)
+rng = MersenneTwister(42)
+N = 10
+Jzz = 1.0 .* ones(N-1)
+hz0 = -0.5 .+ 0.2 .* randn(rng, N)
+model = TFIMChain(N, Jzz, 1.05, hz0, [1,2])
+
 ψ0 = product_state(6)
 obs = LocalZ([1, 2, 3])
 

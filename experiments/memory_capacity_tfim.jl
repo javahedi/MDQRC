@@ -1,3 +1,4 @@
+
 using MDQRC
 using Statistics
 
@@ -6,9 +7,12 @@ println("=== Memory Capacity Experiment (MD-QRC) ===")
 # ----------------------------
 # System setup
 # ----------------------------
+rng = MersenneTwister(42)
 N = 10
-#model = TFIMChain(N, 1.0, 1.0, 0.0) # integrable
-model = TFIMChain(N, 1.0, 1.05, -0.5) # nonintegrable / chaotic-
+Jzz = 1.0 .* ones(N-1)
+hz0 = -0.5 .+ 0.2 .* randn(rng, N)
+model = TFIMChain(N, Jzz, 1.05, hz0, [1,2])
+
 ψ0 = product_state(N)
 
 # ----------------------------

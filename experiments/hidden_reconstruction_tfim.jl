@@ -1,13 +1,17 @@
+
 using MDQRC
 using Statistics
-
+using Random
 println("=== Hidden Variable Reconstruction Experiment ===")
 
 # ----------------------------
 # System setup
 # ----------------------------
-N = 6
-model = TFIMChain(N, 1.0, 0.7, 0.0)
+rng = MersenneTwister(42)
+N = 10
+Jzz = 1.0 .* ones(N-1)
+hz0 = -0.5 .+ 0.2 .* randn(rng, N)
+model = TFIMChain(N, Jzz, 1.05, hz0, [1,2])
 ψ0 = product_state(N)
 
 # Drive

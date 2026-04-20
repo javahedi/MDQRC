@@ -1,40 +1,80 @@
 """
-Transverse-Field Ising Model (TFIM)
+Disordered Transverse-Field Ising Model (TFIM)
 
 Hamiltonian:
-    H(t) = J * ∑ Z_i Z_{i+1} + g * ∑ X_i + (hz0 + hz(t)) * ∑ Z_i
+    H(t) = ∑_{i=1}^{N-1} Jzz[i] * Z_i Z_{i+1}
+         + g * ∑_{i=1}^{N} X_i
+         + ∑_{i=1}^{N} hz0[i] * Z_i
+         + hz(t) * ∑_{i ∈ drive_sites} Z_i
 
 where:
-- J   : nearest-neighbor ZZ interaction strength
-- g   : transverse-field strength
-- hz0 : static longitudinal field
-- hz(t): externally supplied time-dependent drive / input signal
+- Jzz[i]       : nearest-neighbor ZZ couplings on bond (i, i+1)
+- g            : uniform transverse-field strength
+- hz0[i]       : static site-dependent longitudinal fields
+- hz(t)        : time-dependent input signal
+- drive_sites  : subset of sites where the input is applied
 
-Design notes:
-- `hz0` controls the intrinsic dynamical regime of the model
-  (e.g. integrable vs nonintegrable behavior).
-- `hz(t)` is the external input signal used by MD-QRC.
-- The Hamiltonian is applied on-the-fly in a matrix-free manner.
+Design:
+- site/bond disorder breaks mirror symmetry
+- local driving allows directional information injection
+- Hamiltonian is applied on-the-fly, no dense matrix construction
 """
 struct TFIMChain <: AbstractQuantumModel
-    N::Int          # number of spins
-    J::Float64      # ZZ interaction strength
-    g::Float64      # transverse field strength
-    hz0::Float64    # static longitudinal field
+    N::Int
+    Jzz::Vector{Float64}       # length N-1
+    g::Float64
+    hz0::Vector{Float64}       # length N
+    drive_sites::Vector{Int}
 end
 
 """
-Apply the TFIM Hamiltonian to a statevector in-place:
+Convenience constructor for uniform couplings/fields.
+
+Example:
+    model = TFIMChain(10, 1.0, 1.05, -0.5, [1,2])
+
+This creates:
+- Jzz = fill(1.0, N-1)
+- hz0 = fill(-0.5, N)
+"""
+function TFIMChain(
+    N::Int,
+    J::Real,
+    g::Real,
+    hz0::Real,
+    drive_sites::Vector{Int},
+)
+    return TFIMChain(
+        N,
+        fill(Float64(J), N - 1),
+        Float64(g),
+        fill(Float64(hz0), N),
+        drive_sites,
+    )
+end
+
+"""
+Validation helper for TFIMChain parameters.
+"""
+function validate(model::TFIMChain)
+    length(model.Jzz) == model.N - 1 || error("Jzz must have length N-1.")
+    length(model.hz0) == model.N     || error("hz0 must have length N.")
+    all(1 .<= model.drive_sites .<= model.N) || error("drive_sites must be valid site indices.")
+    return nothing
+end
+
+"""
+Apply the disordered TFIM Hamiltonian to a statevector in-place:
     out = H(t) * ψ
 
 Arguments:
 - `out`   : output buffer
 - `model` : TFIMChain model parameters
 - `ψ`     : input statevector
-- `hz`    : external time-dependent longitudinal field at the current time step
+- `hz`    : external time-dependent longitudinal drive at current time
 
 Implementation:
-- diagonal terms are computed directly from bit-string basis states
+- diagonal ZZ and Z terms are computed directly from the bit-string basis
 - off-diagonal X terms are generated via single-spin bit flips
 - no dense Hamiltonian matrix is constructed
 """
@@ -44,10 +84,13 @@ function apply_hamiltonian!(
     ψ::AbstractVector{ComplexF64},
     hz::Float64,
 )
-    N   = model.N
-    J   = model.J
-    g   = model.g
+    validate(model)
+
+    N = model.N
+    Jzz = model.Jzz
+    g = model.g
     hz0 = model.hz0
+    drive_sites = model.drive_sites
 
     fill!(out, 0)
 
@@ -60,14 +103,19 @@ function apply_hamiltonian!(
         # -------------------------
         diag = 0.0
 
-        # Nearest-neighbor ZZ interaction
+        # Bond-disordered ZZ interaction
         for i in 1:(N - 1)
-            diag += J * zvalue(state, i, N) * zvalue(state, i + 1, N)
+            diag += Jzz[i] * zvalue(state, i, N) * zvalue(state, i + 1, N)
         end
 
-        # Static + time-dependent longitudinal field
+        # Site-disordered static longitudinal field
         for i in 1:N
-            diag += (hz0 + hz) * zvalue(state, i, N)
+            diag += hz0[i] * zvalue(state, i, N)
+        end
+
+        # Local time-dependent drive
+        for i in drive_sites
+            diag += hz * zvalue(state, i, N)
         end
 
         out[state + 1] += diag * amp
@@ -75,7 +123,6 @@ function apply_hamiltonian!(
         # -------------------------
         # Off-diagonal contribution
         # -------------------------
-        # Transverse X field flips one spin at a time
         for i in 1:N
             flipped = flipbit(state, i, N)
             out[flipped + 1] += g * amp
